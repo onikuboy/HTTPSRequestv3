@@ -14,7 +14,7 @@
 #include <ESP8266WiFi.h>
 #include <WiFiClientSecure.h>
 #include <ESP8266WebServer.h>
-#include <ESP8266mDNS.h>
+
 
 //URL for Console Setup Information
 //https://script.google.com/macros/s/AKfycbxvHBxaTbdzd-aZwbpdBqqsOLM2rcmcMc7OLCnTavT7xTcqFNmF/exec
@@ -104,8 +104,8 @@ enum OPERATION_STAGE
 
 ESP8266WebServer server;
 //WiFiServer server(80);
-MDNSResponder mdns;
-WiFiClientSecure client;
+
+WiFiClientSecure httpsclient;
 WiFiClient GoogleClient;
 
 
@@ -119,10 +119,16 @@ void setup() {
  
   WiFi.disconnect();
 
+#ifdef DEBUG  
+  Serial.print("WiFi mode is at ");
+  Serial.println(WiFi.getMode());
+#endif
+
   delay(500);
 }
 
 void loop() {
+
 
   switch(Stages)
   {
@@ -170,23 +176,6 @@ void loop() {
                                 }
 
 
-#ifdef DEBUG
-                                Serial.println(URL_line);
-#endif                                                                
-
-                                Server_SSID[0] = 'A';
-                                Server_SSID[1] = 'n';
-                                Server_SSID[2] = 'g';
-                                Server_SSID[3] = 'e';
-                                Server_SSID[4] = 'l';
-                                Server_SSID[5] = GuardianID[0];
-                                Server_SSID[6] = GuardianID[1];
-                                Server_SSID[7] = GuardianID[2];
-                                Server_SSID[8] = GuardianID[3];
-
-                                WiFi.softAP(Server_SSID,Server_SSID);
-                                
-
                                 URL_line += url_Postal;
                                 loop_count++;
                                 count = 0;
@@ -198,6 +187,42 @@ void loop() {
                                   loop_count++;
                                   count++;
                                                                     
+                                }
+
+                                if(GuardianPostal[0] != '?')
+                                {
+#ifdef DEBUG
+                                  Serial.println(URL_line);
+#endif                                                                
+
+                                  Server_SSID[0] = 'A';
+                                  Server_SSID[1] = 'n';
+                                  Server_SSID[2] = 'g';
+                                  Server_SSID[3] = 'e';
+                                  Server_SSID[4] = 'l';
+                                  Server_SSID[5] = GuardianID[0];
+                                  Server_SSID[6] = GuardianID[1];
+                                  Server_SSID[7] = GuardianID[2];
+                                  Server_SSID[8] = GuardianID[3];
+
+                                  WiFi.softAP(Server_SSID,Server_SSID);
+#ifdef DEBUG
+                                  Serial.print("WiFi connection is ");
+                                  Serial.println(WiFi.isConnected());
+#endif
+                                  WiFi.reconnect();
+                                  while (WiFi.status() != WL_CONNECTED)
+                                  {
+                                    delay(500);
+#ifdef DEBUG
+                                    Serial.print(".");
+#endif
+                                  } 
+                                                                
+#ifdef DEBUG
+                                  Serial.print("WiFi mode is at ");
+                                  Serial.println(WiFi.getMode());
+#endif                                
                                 }
 
 #ifdef DEBUG
@@ -496,12 +521,6 @@ void loop() {
                               count++;  
                             }
                             Serial.println(line);
-                            if(mdns.begin("myangel",WiFi.localIP()))
-                            {
-#ifdef DEBUG
-                              Serial.println("MDNS Responder Started");
-#endif
-                            }
 
                             server.on ( "/", handleRoot );
                             server.on ( "/login", handleLogin );
@@ -513,7 +532,6 @@ void loop() {
                             server.onNotFound ( handleNotFound );
                             server.begin();   
 
-                            MDNS.addService("http","tcp",80);
                             Stages = Command_Idle;
                           
                           
@@ -944,14 +962,16 @@ void loop() {
                             Serial.print("connecting to ");
                             Serial.println(host);
 #endif
-                            if (!client.connect(host, httpsPort)) 
+                            if (!httpsclient.connect(host, httpsPort)) 
                             {
                               Serial.println("connection failed");
+                              httpsclient.stop();
+                              delay(500);
                             }
                             else
                             {
                               Serial.println("connection passed");
-                              if (client.verify(fingerprint, host))
+                              if (httpsclient.verify(fingerprint, host))
                               {
                                 Serial.println("certificate matches");
                               }
@@ -971,15 +991,15 @@ void loop() {
                           Serial.print("\r\nrequesting URL: ");
                           Serial.println(url_Setup + URL_line);
 #endif
-                          client.print(String("GET ") + url_Setup + URL_line + " HTTP/1.1\r\n" + "Host: " + host + "\r\n" + "User-Agent: BuildFailureDetectorESP8266\r\n" + "Connection: close\r\n\r\n");
+                          httpsclient.print(String("GET ") + url_Setup + URL_line + " HTTP/1.1\r\n" + "Host: " + host + "\r\n" + "User-Agent: BuildFailureDetectorESP8266\r\n" + "Connection: close\r\n\r\n");
 #ifdef DEBUG
                           Serial.println("\r\nrequest sent");
 #endif
                           count = 0;
                           //Read and parse all the lines of the reply from server          
-                          while (client.connected()) 
+                          while (httpsclient.connected()) 
                           {
-                            httpReply[count] = client.read();
+                            httpReply[count] = httpsclient.read();
 #ifdef DEBUG                            
                             Serial.print(httpReply[count]);
 #endif
@@ -1343,7 +1363,7 @@ void loop() {
                           
                           Serial.println(line);              
                           Serial.println("closing connection");  
-                          client.stop();
+                          httpsclient.stop();
                           Stages = Command_Idle;
                         
                         break;
@@ -1353,14 +1373,14 @@ void loop() {
                         Serial.print("connecting to ");
                         Serial.println(host);
 #endif
-                        if (!client.connect(host, httpsPort)) 
+                        if (!httpsclient.connect(host, httpsPort)) 
                         {
                           Serial.println("connection failed");
-                          client.stop();
+                          httpsclient.stop();
                         }
                         else
                         {
-                          if (client.verify(fingerprint, host))
+                          if (httpsclient.verify(fingerprint, host))
                           {
                             Serial.println("certificate matches");
                           }
@@ -1380,21 +1400,21 @@ void loop() {
                         Serial.print("\r\nrequesting URL: ");
                         Serial.println(url_Log + URL_line);
 #endif
-                        client.print(String("GET ") + url_Log + URL_line + " HTTP/1.1\r\n" + "Host: " + host + "\r\n" + "User-Agent: BuildFailureDetectorESP8266\r\n" + "Connection: close\r\n\r\n");
+                        httpsclient.print(String("GET ") + url_Log + URL_line + " HTTP/1.1\r\n" + "Host: " + host + "\r\n" + "User-Agent: BuildFailureDetectorESP8266\r\n" + "Connection: close\r\n\r\n");
 
                         Serial.println("\r\nrequest sent");
 
 
                         //Read and parse all the lines of the reply from server          
-                        while (client.available()) 
+                        while (httpsclient.available()) 
                         {
 #ifdef DEBUG                          
-                          String line = client.readStringUntil('\r');
+                          String line = httpsclient.readStringUntil('\r');
 #endif
                         }    
   
                         Serial.println("closing connection");
-                        client.stop();
+                        httpsclient.stop();
                         Stages = Command_Idle;
                 
                         break;
